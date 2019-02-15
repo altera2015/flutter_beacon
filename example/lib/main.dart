@@ -41,7 +41,7 @@ class _MyAppState extends State<MyApp> {
       _platformVersion = platformVersion;
     });
 
-    FlutterBeacons.getBeaconStream.listen((IBeaconSetting d) {
+    FlutterBeacons.getBeaconStream.listen((IBeacon d) {
       print(d);
     });
   }

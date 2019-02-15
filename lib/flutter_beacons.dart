@@ -2,6 +2,27 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 
+class IBeacon {
+  String uuid;
+  int major;
+  int minor;
+  int powerLevel;
+  int rssi;
+
+  IBeacon.fromMap(String json) {
+    Map<String, dynamic> o = jsonDecode(json);
+    uuid = o["uuid"];
+    major = o["major"];
+    minor = o["minor"];
+    powerLevel = o["powerLevel"];
+    rssi = o["rssi"];
+  }
+
+  String toString() {
+    return "IBeacon [uuid=$uuid, major=$major, minor=$minor, powerLevel=$powerLevel, rssi=$rssi]";
+  }
+}
+
 class IBeaconSetting {
   String uuid;
   int major;
@@ -43,7 +64,7 @@ class FlutterBeacons {
   static const MethodChannel _channel = const MethodChannel('flutter_beacons');
   static const EventChannel _eventChannel =
       const EventChannel('flutter_beacons/listen');
-  static Stream<IBeaconSetting> _eventStream;
+  static Stream<IBeacon> _eventStream;
 
   static Future<String> get platformVersion async {
     final String version = await _channel.invokeMethod('getPlatformVersion');
@@ -58,11 +79,11 @@ class FlutterBeacons {
     return await _channel.invokeMethod("stopListen");
   }
 
-  static Stream<IBeaconSetting> get getBeaconStream {
+  static Stream<IBeacon> get getBeaconStream {
     if (_eventStream == null) {
       _eventStream =
-          _eventChannel.receiveBroadcastStream().map<IBeaconSetting>((json) {
-        return IBeaconSetting.fromMap(json);
+          _eventChannel.receiveBroadcastStream().map<IBeacon>((json) {
+        return IBeacon.fromMap(json);
       });
     }
     return _eventStream;

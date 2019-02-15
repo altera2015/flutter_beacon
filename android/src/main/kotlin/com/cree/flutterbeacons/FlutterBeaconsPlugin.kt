@@ -16,14 +16,15 @@ import org.json.JSONObject
 import java.util.UUID
 import java.nio.ByteBuffer
 
+class IBeacon(val uuid: String,
+              val major: Int,
+              val minor: Int,
+              val powerLevel: Int,
+              val rssi: Int) {
 
-class IBeaconSetting(val uuid: String,
-                     val major: Int,
-                     val minor: Int,
-                     val powerLevel: Int,
-                     val beaconId: String) {
     companion object {
-        fun create(ba: ByteArray) : IBeaconSetting? {
+
+        fun parse(ba: ByteArray, rssi: Int) : IBeacon? {
 
             if ( ba.size < 26 ) {
                 // Log.e(TAG, "incorrect size")
@@ -49,9 +50,27 @@ class IBeaconSetting(val uuid: String,
             }
 
             var uuid: UUID = UUID(buf.getLong(6),buf.getLong(14))
-            return IBeaconSetting(uuid.toString(), buf.getShort(22).toInt(), buf.getShort(24).toInt(), buf.get(26).toInt(), "");
+            return IBeacon(uuid.toString(), buf.getShort(22).toInt(), buf.getShort(24).toInt(), buf.get(26).toInt(), rssi)
         }
     }
+
+    fun toJson(): JSONObject {
+        var j = JSONObject()
+        j.put("uuid", uuid)
+        j.put("major", major)
+        j.put("minor", minor)
+        j.put("powerLevel", powerLevel)
+        j.put("rssi", rssi)
+        return j
+    }
+}
+
+class IBeaconSetting(val uuid: String,
+                     val major: Int,
+                     val minor: Int,
+                     val powerLevel: Int,
+                     val beaconId: String) {
+
     fun toJson(): JSONObject {
         var j = JSONObject()
         j.put("uuid", uuid)
@@ -270,7 +289,7 @@ class FlutterBeaconsPlugin(private val context: Context) : MethodCallHandler, Ev
         }
         scanCallback = PScanCallback{
 
-            var ib = IBeaconSetting.create(it.scanRecord.bytes)
+            var ib = IBeacon.parse(it.scanRecord.bytes, it.rssi)
             if ( ib != null ) {
                 // Log.e(TAG, "received and passed along")
                 eventSink?.success(ib.toJson().toString())
