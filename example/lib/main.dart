@@ -4,7 +4,6 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_beacons/flutter_beacons.dart';
 
-
 void main() => runApp(MyApp());
 
 class MyApp extends StatefulWidget {
@@ -41,6 +40,10 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _platformVersion = platformVersion;
     });
+
+    FlutterBeacons.getBeaconStream.listen((IBeaconSetting d) {
+      print(d);
+    });
   }
 
   @override
@@ -50,34 +53,41 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(
           title: const Text('Plugin example app'),
         ),
-        body: Column(
-          children: [
-            Text('Running on: $_platformVersion\n'),
-            RaisedButton(
+        body: Column(children: [
+          Text('Running on: $_platformVersion\n'),
+          RaisedButton(
               onPressed: () async {
-
-                if (!( await FlutterBeacons.adapterEnabled() )) {
+                if (!(await FlutterBeacons.adapterEnabled())) {
                   print("Adapter not enabled.");
                   return;
                 }
 
-                if ( _beaconRunning ) {
+                if (_beaconRunning) {
                   FlutterBeacons.stopBeacon(_beaconSettings.beaconId);
                   setState(() {
                     _beaconRunning = false;
                   });
                 } else {
-                  bool result = await FlutterBeacons.startBeacon(_beaconSettings);
+                  bool result =
+                      await FlutterBeacons.startBeacon(_beaconSettings);
                   print("Enabled $result");
                   setState(() {
                     _beaconRunning = result;
                   });
                 }
               },
-              child: Text(_beaconRunning ? "Stop Beacon" : "Start Beacon")
-            )
-          ]
-        ),
+              child: Text(_beaconRunning ? "Stop Beacon" : "Start Beacon")),
+          RaisedButton(
+              onPressed: () async {
+                FlutterBeacons.startListen();
+              },
+              child: Text("Start Listen")),
+          RaisedButton(
+              onPressed: () async {
+                FlutterBeacons.stopListen();
+              },
+              child: Text("Stop Listen"))
+        ]),
       ),
     );
   }

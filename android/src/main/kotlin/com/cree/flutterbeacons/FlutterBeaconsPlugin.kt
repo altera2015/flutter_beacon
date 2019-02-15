@@ -2,18 +2,17 @@ package com.cree.flutterbeacons
 
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.Registrar
 
 import android.content.Context
-import android.bluetooth.le.AdvertiseSettings
-import android.bluetooth.le.AdvertiseData
-import android.bluetooth.le.AdvertiseCallback
 import android.util.Log
-import android.bluetooth.le.BluetoothLeAdvertiser
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
+import android.bluetooth.le.*
+import org.json.JSONObject
 import java.util.UUID
 import java.nio.ByteBuffer
 
@@ -22,12 +21,53 @@ class IBeaconSetting(val uuid: String,
                      val major: Int,
                      val minor: Int,
                      val powerLevel: Int,
-                     val beaconId: String)
+                     val beaconId: String) {
+    companion object {
+        fun create(ba: ByteArray) : IBeaconSetting? {
+
+            if ( ba.size < 26 ) {
+                // Log.e(TAG, "incorrect size")
+                return null
+            }
+
+            var buf: ByteBuffer = ByteBuffer.wrap(ba)
+            // 1AFF4C000215ABABABABABABABABABABABABABABABAB00FF00FFBF0000000000000000000000000000000000000000000000000000000000000000000000
+            var pa: Int = buf.getShort(0).toInt()
+            if ( pa != 0x1AFF ) {
+                // Log.e(TAG, "incorrect preamble A||0x1AFF: " + pa.toString())
+                return null
+            }
+            pa = buf.getShort(2).toInt()
+            if ( pa != 0x4C00 ) {
+                // Log.e(TAG, "incorrect preamble B||0x4C00: " + pa.toString())
+                return null
+            }
+            pa = buf.getShort(4).toInt()
+            if ( pa != 0x0215 ) {
+                // Log.e(TAG, "incorrect preamble C||0x0215: " + pa.toString())
+                return null
+            }
+
+            var uuid: UUID = UUID(buf.getLong(6),buf.getLong(14))
+            return IBeaconSetting(uuid.toString(), buf.getShort(22).toInt(), buf.getShort(24).toInt(), buf.get(26).toInt(), "");
+        }
+    }
+    fun toJson(): JSONObject {
+        var j = JSONObject()
+        j.put("uuid", uuid)
+        j.put("major", major)
+        j.put("minor", minor)
+        j.put("powerLevel", powerLevel)
+        j.put("beaconId", beaconId)
+        return j
+    }
+}
 
 const val TAG = "FlutterBeacons"
 
 typealias ResultCallback = (Boolean) -> Unit
 
+typealias ScanResultCallback = (ScanResult) -> Unit
 
 class BLEEncap(private val context: Context) {
 
@@ -69,6 +109,30 @@ class BLEEncap(private val context: Context) {
 
         return adv
     }
+
+
+    fun getScanner() : BluetoothLeScanner? {
+
+        val adapter : BluetoothAdapter? = getBleAdapter()
+        if ( adapter == null ) {
+            return null
+        }
+
+        if ( !adapter.isEnabled ) {
+            Log.e(TAG, "Bluetooth Adapter not enabled.")
+            return null;
+        }
+
+        var scanner: BluetoothLeScanner? = adapter.getBluetoothLeScanner()
+
+        if ( scanner ==  null ) {
+            Log.e(TAG, "No BLE Scanner found")
+            return null
+        }
+
+        return scanner
+    }
+
 }
 
 class IBeacons(private val ble: BLEEncap, private val settings: IBeaconSetting){
@@ -159,20 +223,78 @@ class IBeacons(private val ble: BLEEncap, private val settings: IBeaconSetting){
     }
 }
 
-class FlutterBeaconsPlugin(private val context: Context) : MethodCallHandler {
+class FlutterBeaconsPlugin(private val context: Context) : MethodCallHandler, EventChannel.StreamHandler {
 
-  private var beacons : MutableMap<String, IBeacons> = mutableMapOf<String, IBeacons>()
-  private var ble: BLEEncap = BLEEncap(context)
+    private var beacons : MutableMap<String, IBeacons> = mutableMapOf<String, IBeacons>()
+    private var ble: BLEEncap = BLEEncap(context)
+    private var eventSink: EventChannel.EventSink? = null
 
-  companion object {
-    @JvmStatic
-    fun registerWith(registrar: Registrar) {
-      val channel = MethodChannel(registrar.messenger(), "flutter_beacons")
-      channel.setMethodCallHandler(FlutterBeaconsPlugin(registrar.context()))
+    companion object {
+        @JvmStatic
+        fun registerWith(registrar: Registrar) {
+            val channel = MethodChannel(registrar.messenger(), "flutter_beacons")
+            val eventChannel = EventChannel(registrar.messenger(), "flutter_beacons/listen")
+            val instance = FlutterBeaconsPlugin(registrar.context())
+            channel.setMethodCallHandler(instance)
+            eventChannel.setStreamHandler(instance)
+        }
     }
-  }
 
-  private fun startBeacon( settings: IBeaconSetting, cb: ResultCallback ) {
+    override fun onListen(arguments: Any?, sink: EventChannel.EventSink ) {
+        eventSink = sink
+    }
+    override fun onCancel(arguments: Any? ) {
+        eventSink = null
+    }
+
+    class PScanCallback(private val cbFun: ScanResultCallback) : ScanCallback () {
+
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            cbFun(result)
+        }
+
+        // override fun onScanFailed(errorCode: Int) {
+        // }
+
+    }
+    private var scanCallback: PScanCallback? = null
+
+    private fun startListen() : Boolean {
+        // Log.e(TAG, "startListen")
+        var scanner = ble.getScanner()
+        if (scanner == null) {
+            return false
+        }
+        if (scanCallback != null ) {
+            return false
+        }
+        scanCallback = PScanCallback{
+
+            var ib = IBeaconSetting.create(it.scanRecord.bytes)
+            if ( ib != null ) {
+                // Log.e(TAG, "received and passed along")
+                eventSink?.success(ib.toJson().toString())
+            }
+        }
+        scanner.startScan(scanCallback)
+        return true
+    }
+
+    private fun stopListen() : Boolean {
+        // Log.e(TAG, "stopListen")
+        if ( scanCallback == null ) {
+            return false
+        }
+        var scanner = ble.getScanner()
+        if (scanner == null) {
+            return false
+        }
+        scanner.stopScan(scanCallback)
+        scanCallback = null
+        return true
+    }
+
+    private fun startBeacon( settings: IBeaconSetting, cb: ResultCallback ) {
     if ( beacons[settings.beaconId] != null ) {
       beacons[settings.beaconId]!!.stop()
     }
@@ -192,10 +314,11 @@ class FlutterBeaconsPlugin(private val context: Context) : MethodCallHandler {
   private fun adapterEnabled() : Boolean {
       val adapter : BluetoothAdapter? = ble.getBleAdapter()
       if ( adapter == null ) {
-          return false;
+          return false
       }
       return adapter.isEnabled
   }
+
 
   override fun onMethodCall(call: MethodCall, result: Result) {
     if (call.method == "getPlatformVersion") {
@@ -228,9 +351,19 @@ class FlutterBeaconsPlugin(private val context: Context) : MethodCallHandler {
       result.success(stopBeacon(beaconId) )
 
     } else if (call.method == "adapterEnabled") {
+
         result.success(adapterEnabled())
 
+    } else if (call.method == "startListen") {
+
+        result.success(startListen())
+
+    } else if (call.method == "stopListen") {
+
+        result.success(stopListen())
+
     } else {
+
       result.notImplemented()
     }
   }
