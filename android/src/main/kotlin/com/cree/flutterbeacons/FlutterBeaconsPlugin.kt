@@ -15,6 +15,7 @@ import android.bluetooth.le.*
 import org.json.JSONObject
 import java.util.UUID
 import java.nio.ByteBuffer
+import android.bluetooth.le.ScanSettings.Builder
 
 class IBeacon(val uuid: String,
               val major: Int,
@@ -24,33 +25,61 @@ class IBeacon(val uuid: String,
 
     companion object {
 
+        fun toHex(ba: ByteArray) : String {
+            var s: String = ""
+            for (b in ba) {
+                val st = String.format("%02X ", b)
+                s += st
+            }
+            return s
+        }
+
         fun parse(ba: ByteArray, rssi: Int) : IBeacon? {
 
             if ( ba.size < 26 ) {
-                // Log.e(TAG, "incorrect size")
+                Log.e(TAG, "incorrect size")
+                Log.e(TAG, toHex(ba))
                 return null
             }
 
             var buf: ByteBuffer = ByteBuffer.wrap(ba)
+            // Android generated:
             // 1AFF4C000215ABABABABABABABABABABABABABABABAB00FF00FFBF0000000000000000000000000000000000000000000000000000000000000000000000
-            var pa: Int = buf.getShort(0).toInt()
+            // Tag generated:
+            // 02 01 06 1A FF 4C 00 02 15 42 6C 75 65 43 68 61 72 6D 42 65 61 63 6F 6E 73 0E FE 13 55 C0 13 09 70 42 65 61 63 6F 6E 5F 72 6F 6E 31 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+
+            var len_byte = buf.get(0).toInt()
+            var type_byte = buf.get(1).toInt()
+            var value_byte = buf.get(2).toInt()
+
+            var offset: Int = 0
+
+            if ( len_byte == 0x02 && type_byte == 0x01 && value_byte == 0x06 ) {
+                offset = 3
+            }
+
+            var pa: Int = buf.getShort(offset+0).toInt()
             if ( pa != 0x1AFF ) {
                 // Log.e(TAG, "incorrect preamble A||0x1AFF: " + pa.toString())
+                // Log.e(TAG, toHex(ba))
                 return null
             }
-            pa = buf.getShort(2).toInt()
+            pa = buf.getShort(offset+2).toInt()
             if ( pa != 0x4C00 ) {
                 // Log.e(TAG, "incorrect preamble B||0x4C00: " + pa.toString())
+                // Log.e(TAG, toHex(ba))
                 return null
             }
-            pa = buf.getShort(4).toInt()
+            pa = buf.getShort(offset+4).toInt()
             if ( pa != 0x0215 ) {
                 // Log.e(TAG, "incorrect preamble C||0x0215: " + pa.toString())
+                // Log.e(TAG, toHex(ba))
                 return null
             }
 
-            var uuid: UUID = UUID(buf.getLong(6),buf.getLong(14))
-            return IBeacon(uuid.toString(), buf.getShort(22).toInt(), buf.getShort(24).toInt(), buf.get(26).toInt(), rssi)
+            var uuid: UUID = UUID(buf.getLong(offset+6),buf.getLong(offset+14))
+            return IBeacon(uuid.toString(), buf.getShort(offset+22).toInt(), buf.getShort(offset+24).toInt(), buf.get(offset+26).toInt(), rssi)
         }
     }
 
@@ -295,7 +324,10 @@ class FlutterBeaconsPlugin(private val context: Context) : MethodCallHandler, Ev
                 eventSink?.success(ib.toJson().toString())
             }
         }
-        scanner.startScan(scanCallback)
+        var builder: ScanSettings.Builder = ScanSettings.Builder()
+        builder.setReportDelay(0)
+        builder.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+        scanner.startScan(null, builder.build(), scanCallback)
         return true
     }
 
